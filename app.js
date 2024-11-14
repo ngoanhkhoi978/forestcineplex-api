@@ -11,10 +11,6 @@ app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Connect database
-db.connect();
 
 app.use(
     cors({
@@ -22,6 +18,11 @@ app.use(
         credentials: true,
     }),
 );
+
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
+// Connect database
+db.connect();
 
 // Setup route
 const route = require('./routes');

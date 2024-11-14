@@ -3,6 +3,7 @@ const env = require('../config/environment');
 
 const authenticationToken = (req, res, next) => {
     const token = req.cookies.token;
+
     if (!token) {
         return res.status(400).json({ error: 'Access denied' });
     }

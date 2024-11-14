@@ -8,10 +8,13 @@ class AuthController {
     async login(req, res) {
         try {
             const { username, password } = req.body;
+
             const user = await User.findOne({ username });
+
             if (!user) {
                 return res.status(401).json({ invalid: 'username' });
             }
+
             const isMatch = await user.comparePassword(password);
 
             if (!isMatch) {
@@ -30,7 +33,7 @@ class AuthController {
             res.cookie('token', token, {
                 httpOnly: true,
                 secure: env.NODE_ENV === 'production',
-                sameSite: 'Strict',
+                sameSite: 'Lax',
                 maxAge: 3600000,
             });
 
