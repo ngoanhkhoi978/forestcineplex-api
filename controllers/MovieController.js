@@ -149,6 +149,33 @@ class MovieController {
             res.status(400).json({ mess: err });
         }
     }
+
+    // [PUT] /
+    async editMovie(req, res) {
+        try {
+            if (req.trailerFile) {
+                await convertTrailerToHLS(req.movieId.toString());
+                await deletePath(path.join(__dirname, '..', 'protected', 'uploads', 'trailers', `${req.movieId}.mp4`));
+            }
+            const { movieId } = req.params;
+            const movie = await Movie.findOne({ _id: movieId });
+            Object.assign(movie, {
+                title: req.body.title,
+                description: req.body.description,
+                casts: req.body.casts,
+                directors: req.body.directors,
+                genres: req.body.genres,
+                releaseDate: req.body.releaseDate,
+                thumbnailUrl: req.thumbnailFile ? `/public/thumbnails/${req.thumbnailFile}` : movie.thumbnailUrl,
+                coverImageUrl: req.coverFile ? `/public/covers/${req.coverFile}` : movie.coverImageUrl,
+            });
+            await movie.save();
+            res.status(200).json(movie);
+        } catch (e) {
+            console.log(err);
+            res.status(400).json({ mess: err });
+        }
+    }
 }
 
 module.exports = new MovieController();

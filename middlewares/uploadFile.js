@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const deletePath = require('../utils/deletePath');
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -22,20 +23,34 @@ const storage = multer.diskStorage({
     },
 
     filename: function (req, file, cb) {
-        let newFileName = '';
-        if (req.body.type === 'movie') {
-            if (file.fieldname === 'coverFile') {
-                newFileName = `cover-${req.movieId}`;
-                req.coverFile = newFileName + path.extname(file.originalname);
-            } else if (file.fieldname === 'thumbnailFile') {
-                newFileName = `thumbnail-${req.movieId}`;
-                req.thumbnailFile = newFileName + path.extname(file.originalname);
-            } else if (file.fieldname === 'trailerFile') {
-                newFileName = `${req.movieId}`;
-                req.trailerFile = newFileName + path.extname(file.originalname);
+        (async function asyncfunc() {
+            let newFileName = '';
+            if (req.body.type === 'movie') {
+                if (file.fieldname === 'coverFile') {
+                    newFileName = `cover-${req.movieId}`;
+                    req.coverFile = newFileName + path.extname(file.originalname);
+                    if (req.method === 'PUT') {
+                        const coverPath = path.join(__dirname, '..', ...req.movie.coverImageUrl.split('/'));
+                        await deletePath(coverPath);
+                    }
+                } else if (file.fieldname === 'thumbnailFile') {
+                    newFileName = `thumbnail-${req.movieId}`;
+                    req.thumbnailFile = newFileName + path.extname(file.originalname);
+                    if (req.method === 'PUT') {
+                        const thumbnailPath = path.join(__dirname, '..', ...req.movie.thumbnailUrl.split('/'));
+                        await deletePath(thumbnailPath);
+                    }
+                } else if (file.fieldname === 'trailerFile') {
+                    newFileName = `${req.movieId}`;
+                    req.trailerFile = newFileName + path.extname(file.originalname);
+                    if (req.method === 'PUT') {
+                        const trailerPath = path.join(__dirname, '..', ...req.movie.trailerUrl.split('/').slice(0, -1));
+                        await deletePath(trailerPath);
+                    }
+                }
             }
-        }
-        cb(null, newFileName + path.extname(file.originalname));
+            cb(null, newFileName + path.extname(file.originalname));
+        })().catch((err) => cb(err));
     },
 });
 

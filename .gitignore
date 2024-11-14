@@ -47,3 +47,7 @@ jspm_packages/
 
 # Optional ESLint cache
 .eslintcache
+
+/public/covers/
+/public/thumbnails/
+/public/trailers/

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const createMovie = require('../middlewares/createMovie');
+const editMovie = require('../middlewares/editMovie');
 const upload = require('../middlewares/uploadFile');
 
 const movieController = require('../controllers/movieController');
@@ -31,11 +32,21 @@ router.post('/add');
 
 router.get('/:movieId', movieController.getMovieById);
 
+router.put(
+    '/:movieId',
+    editMovie,
+    upload.fields([
+        { name: 'coverFile', maxCount: 1 },
+        { name: 'thumbnailFile', maxCount: 1 },
+        { name: 'trailerFile', maxCount: 1 },
+    ]),
+    movieController.editMovie,
+);
+
 router.delete('/:movieId', movieController.deleteMovieById);
 
 router.post(
     '/',
-
     createMovie,
     upload.fields([
         { name: 'coverFile', maxCount: 1 },
