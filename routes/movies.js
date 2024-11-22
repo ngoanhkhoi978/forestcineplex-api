@@ -11,6 +11,8 @@ const movieController = require('../controllers/movieController');
 
 router.get('/test', movieController.test);
 
+router.get('/random', movieController.getRandomMovie);
+
 router.get('/media/:mediaId/:filename', movieController.getMedia);
 
 router.get('/trailer', movieController.index);
@@ -18,6 +20,12 @@ router.get('/trailer', movieController.index);
 router.get('/convert', movieController.convert);
 
 router.get('/hls', movieController.hls);
+
+router.get('/trailer/:movieId/:filename', movieController.getTrailer);
+
+router.get('/thumbnail/:filename', movieController.getThumbnail);
+
+router.get('/cover-image/:filename', movieController.getCoverImage);
 
 // Movie
 router.get('/title/:title', movieController.getMovieByTitle);

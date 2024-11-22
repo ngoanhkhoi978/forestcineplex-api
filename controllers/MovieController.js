@@ -1,12 +1,14 @@
 const path = require('path');
 const streamVideo = require('../utils/streamVideo');
-const convertToHLS = require('../utils/convertToHLS'); // Đảm bảo đường dẫn đúng
 const Movie = require('../models/Movie');
 const Episode = require('../models/Episode');
 const Genre = require('../models/Genre');
-const { convertTrailerToHLS } = require('../utils/convertToHLS');
+const { convertTrailerToHLS, convertToHLS } = require('../utils/convertToHLS');
+
+const env = require('../config/environment');
 
 const deletePath = require('../utils/deletePath');
+const { populate } = require('dotenv');
 
 class MovieController {
     index(req, res) {
@@ -16,12 +18,26 @@ class MovieController {
     }
 
     test(req, res) {
-        res.send({ success: true });
+        res.send({ mess: env.JWT_SECRET });
     }
 
     convert(req, res) {
-        const inputPath = path.join(__dirname, '..', 'protected', 'uploads', 'medias', 'movie_2.mp4');
-        const outputPath = path.join(__dirname, '..', 'protected', 'hls', 'movies', 'movie_2', 'movie_2.m3u8');
+        const inputPath = path.join(
+            __dirname,
+            '..',
+            'protected',
+            'uploads',
+            'trailers',
+            '673178ae8dfd77caa394091d.mp4',
+        );
+        const outputPath = path.join(
+            __dirname,
+            '..',
+            'public',
+            'trailers',
+            '673178ae8dfd77caa394091d',
+            '673178ae8dfd77caa394091d.m3u8',
+        );
 
         console.log(inputPath);
 
@@ -48,20 +64,54 @@ class MovieController {
     }
 
     // [GET] /genre/:genre
-    getMovieByGenre(req, res) {
-        const genre = req.params.genre;
+    async getMovieByGenre(req, res) {
+        try {
+            const { genre } = req.params;
+            const { limit, index = 1 } = req.query;
+            const genreModel = await Genre.findOne({ name: genre });
+            if (!genreModel) res.status(404).send({ message: 'Not found' });
+            let movie;
+
+            if (limit) {
+                const pageIndex = parseInt(index) - 1;
+                const pageLimit = parseInt(limit);
+                movie = await Movie.find({ genres: genreModel._id })
+                    .skip(pageIndex * pageLimit)
+                    .limit(pageLimit)
+                    .populate('genres')
+                    .populate('episodes');
+            } else {
+                movie = await Movie.find({ genres: genreModel._id }).populate('genres').populate('episodes');
+            }
+
+            res.status(200).send(movie);
+        } catch (e) {
+            console.log(e);
+            res.status(404).send({ message: 'error' });
+        }
     }
 
     // [GET] /:movieId
-    getMovieById(req, res) {
-        const _id = req.params.movieId;
-        Movie.findOne({ _id })
-            .then((movie) => {
-                res.status(200).json(movie);
-            })
-            .catch((err) => {
-                res.status(404).json(err);
-            });
+    async getMovieById(req, res) {
+        try {
+            const { movieId } = req.params;
+
+            const movie = await Movie.findOne({ _id: movieId }).populate('episodes').populate('genres');
+            res.status(200).json(movie);
+        } catch (e) {
+            console.log(e);
+            res.status(404).send({ message: 'Not found' });
+        }
+    }
+
+    async getRandomMovie(req, res) {
+        try {
+            const movie = await Movie.aggregate([{ $sample: { size: 1 } }]);
+            res.json(movie[0]);
+        } catch (e) {
+            console.error(e);
+            res.status(404).json({ message: 'error' });
+        }
     }
 
     async getAllMovies(req, res) {
@@ -106,21 +156,63 @@ class MovieController {
         if (!movie) {
             return res.status(404).json({ message: 'No movie found' });
         }
-        const coverPath = path.join(__dirname, '..', ...movie.coverImageUrl.split('/'));
-        const thumbnailPath = path.join(__dirname, '..', ...movie.thumbnailUrl.split('/'));
-        const trailerPath = path.join(__dirname, '..', ...movie.trailerUrl.split('/').slice(0, -1));
+
+        if (movie.coverImageUrl) {
+            const coverPath = path.join(__dirname, '..', 'storage', 'covers', movie.coverImageUrl.split('/').at(-1));
+            await deletePath(coverPath);
+        }
+
+        if (movie.thumbnailUrl) {
+            const thumbnailPath = path.join(
+                __dirname,
+                '..',
+                'storage',
+                'thumbnails',
+                movie.thumbnailUrl.split('/').at(-1),
+            );
+            await deletePath(thumbnailPath);
+        }
+
+        if (movie.trailerUrl) {
+            const trailerPath = path.join(
+                __dirname,
+                '..',
+                'storage',
+                'hls',
+                'trailers',
+                movie.trailerUrl.split('/').at(-2),
+            );
+            await deletePath(trailerPath).catch((err) => console.log(err));
+        }
+
         await Movie.deleteOne({ _id: movieId });
-        await deletePath(coverPath);
-        await deletePath(thumbnailPath);
-        await deletePath(trailerPath).catch((err) => console.log(err));
+
         res.status(200).send({ mess: 'success' });
     }
 
     // [GET] /media/:mediaId/:filename
     getMedia(req, res) {
         const { mediaId, filename } = req.params;
-        const filePath = path.join(__dirname, '..', 'protected', 'medias', mediaId, filename);
+        const filePath = path.join(__dirname, '..', 'storage', 'hls', 'medias', mediaId, filename);
         res.sendFile(filePath);
+    }
+
+    async getTrailer(req, res) {
+        const { filename, movieId } = req.params;
+        const trailerPath = path.join(__dirname, '..', 'storage', 'hls', 'trailers', movieId, filename);
+        res.sendFile(trailerPath);
+    }
+
+    async getThumbnail(req, res) {
+        const { filename } = req.params;
+        const thumbnailPath = path.join(__dirname, '..', 'storage', 'thumbnails', filename);
+        res.sendFile(thumbnailPath);
+    }
+
+    async getCoverImage(req, res) {
+        const { filename } = req.params;
+        const coverImagePath = path.join(__dirname, '..', 'storage', 'covers', filename);
+        res.sendFile(coverImagePath);
     }
 
     // [POST] /
@@ -137,12 +229,12 @@ class MovieController {
                 genres: req.body.genres,
                 releaseDate: req.body.releaseDate,
                 episodes: [],
-                thumbnailUrl: `/public/thumbnails/${req.thumbnailFile}`,
-                coverImageUrl: `/public/covers/${req.coverFile}`,
-                trailerUrl: `/public/trailers/${req.movieId}/${req.movieId}.m3u8`,
+                thumbnailUrl: `/api/movies/thumbnail/${req.thumbnailFile}`,
+                coverImageUrl: `/api/movies/cover-image/${req.coverFile}`,
+                trailerUrl: `/api/movies/trailer/${req.movieId}/${req.movieId}.m3u8`,
             });
             await movie.save();
-            await deletePath(path.join(__dirname, '..', 'protected', 'uploads', 'trailers', `${req.movieId}.mp4`));
+            await deletePath(path.join(__dirname, '..', 'storage', 'videos', 'trailers', `${req.movieId}.mp4`));
             res.status(200).json(movie);
         } catch (err) {
             console.log(err);
@@ -155,7 +247,7 @@ class MovieController {
         try {
             if (req.trailerFile) {
                 await convertTrailerToHLS(req.movieId.toString());
-                await deletePath(path.join(__dirname, '..', 'protected', 'uploads', 'trailers', `${req.movieId}.mp4`));
+                await deletePath(path.join(__dirname, '..', 'storage', 'videos', 'trailers', `${req.movieId}.mp4`));
             }
             const { movieId } = req.params;
             const movie = await Movie.findOne({ _id: movieId });
@@ -166,8 +258,8 @@ class MovieController {
                 directors: req.body.directors,
                 genres: req.body.genres,
                 releaseDate: req.body.releaseDate,
-                thumbnailUrl: req.thumbnailFile ? `/public/thumbnails/${req.thumbnailFile}` : movie.thumbnailUrl,
-                coverImageUrl: req.coverFile ? `/public/covers/${req.coverFile}` : movie.coverImageUrl,
+                thumbnailUrl: req.thumbnailFile ? `/api/movies/thumbnail/${req.thumbnailFile}` : movie.thumbnailUrl,
+                coverImageUrl: req.coverFile ? `/api/movies/cover-image/${req.coverFile}` : movie.coverImageUrl,
             });
             await movie.save();
             res.status(200).json(movie);
