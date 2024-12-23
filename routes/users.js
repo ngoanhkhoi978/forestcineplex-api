@@ -4,11 +4,11 @@ const router = express.Router();
 const userController = require('../controllers/UserController');
 
 /* GET users listing. */
-router.post('/', (req, res) => {
-    res.json({
-        mess: 'hello',
-    });
-});
-router.get('/', userController.index);
+router.get('/paginated', userController.getUsersWithPagination);
+router.get('/:userId', userController.getUserById);
+router.delete('/:userId', userController.deleteUserById);
+router.put('/:userId', userController.editUser);
+router.post('/', userController.addUser);
+router.get('/', userController.getAllUsers);
 
 module.exports = router;

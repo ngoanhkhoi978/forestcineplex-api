@@ -6,6 +6,7 @@ const editMovie = async (req, res, next) => {
     const movie = await Movie.findOne({ _id: movieId });
     req.movieId = movieId;
     req.movie = movie;
+
     next();
 };
 

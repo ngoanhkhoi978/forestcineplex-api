@@ -81,9 +81,23 @@ const storage = multer.diskStorage({
                 if (file.fieldname === 'thumbnailFile') {
                     newFileName = `thumbnail-${req.episodeId}`;
                     req.thumbnailFile = newFileName + path.extname(file.originalname);
+                    if (req.method === 'PUT') {
+                        const thumbnailPath = path.join(
+                            __dirname,
+                            '..',
+                            'storage',
+                            'thumbnails',
+                            req.episode.thumbnailUrl.split('/').at(-1),
+                        );
+                        await deletePath(thumbnailPath);
+                    }
                 } else if (file.fieldname) {
                     newFileName = `${req.idv4}`;
                     req.mediaFile = newFileName + path.extname(file.originalname);
+                    if (req.method === 'PUT') {
+                        const mediaPath = path.join(__dirname, '..', 'storage', 'hls', 'medias', req.episode.mediaId);
+                        await deletePath(mediaPath);
+                    }
                 }
             }
             cb(null, newFileName + path.extname(file.originalname));

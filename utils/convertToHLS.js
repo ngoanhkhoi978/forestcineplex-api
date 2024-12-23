@@ -1,22 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
-ffmpeg.setFfmpegPath('C:\\ffmpeg\\bin\\ffmpeg.exe');
+// const { getWebSocketServer } = require('../bin/webSocket');
 
-function convertToHLS(inputPath, outputPath, callback, options) {
+const { notifyAdmins } = require('../config/socket');
+
+const getTotalFrames = require('./getTotalFrames');
+
+async function convertToHLS(inputPath, outputPath, options) {
     if (!fs.existsSync(inputPath)) {
-        return callback(new Error('Input file does not exist'));
+        throw new Error('Input file does not exist');
     }
 
-    // Tạo thư mục đầu ra nếu chưa tồn tại
     const outputDir = path.dirname(outputPath);
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    const totalFrame = await getTotalFrames(inputPath);
+
     const baseOutputPath = path.join(outputDir, path.basename(inputPath, path.extname(inputPath)));
 
-    // Nếu `options.multiResolution` là true, xử lý nhiều độ phân giải
     if (options.multiResolution) {
         const resolutions = [
             { name: '1080p', width: 1920, height: 1080, bitrate: '5000k' },
@@ -25,61 +29,90 @@ function convertToHLS(inputPath, outputPath, callback, options) {
             { name: '240p', width: 426, height: 240, bitrate: '500k' },
         ];
 
-        let completed = 0; // Đếm số lần hoàn thành
-        let errors = []; // Lưu lỗi nếu có
-        const playlistEntries = []; // Danh sách các entry cho playlist master
+        let completed = 0;
+        let errors = [];
+        const playlistEntries = [];
 
-        resolutions.forEach((res) => {
-            const resolutionOutput = `${baseOutputPath}_${res.name}`;
-            ffmpeg(inputPath)
-                .size(`${res.width}x${res.height}`)
-                .videoBitrate(res.bitrate)
-                .audioCodec('aac')
-                .videoCodec('libx264')
-                .format('hls')
-                .outputOptions([
-                    '-hls_time 10',
-                    '-hls_list_size 0',
-                    '-hls_segment_filename',
-                    `${resolutionOutput}_%03d.ts`,
-                ])
-                .output(`${resolutionOutput}.m3u8`)
-                .on('end', () => {
-                    console.log(`Resolution ${res.name} conversion finished.`);
+        const promises = resolutions.map((res) => {
+            return new Promise((resolve, reject) => {
+                const resolutionOutput = `${baseOutputPath}_${res.name}`;
+                const ffmpegProcess = ffmpeg(inputPath)
+                    .size(`${res.width}x${res.height}`)
+                    .videoBitrate(res.bitrate)
+                    .audioCodec('aac')
+                    .videoCodec('libx264')
+                    .format('hls')
+                    .outputOptions([
+                        '-hls_time 10',
+                        '-hls_list_size 0',
+                        '-hls_segment_filename',
+                        `${resolutionOutput}_%03d.ts`,
+                    ])
+                    .output(`${resolutionOutput}.m3u8`)
+                    .on('end', () => {
+                        console.log(`Resolution ${res.name} conversion finished.`);
 
-                    // Thêm entry vào playlist master
-                    playlistEntries.push(
-                        `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(res.bitrate, 10) * 1000},RESOLUTION=${res.width}x${res.height}\n${path.basename(resolutionOutput)}.m3u8`,
-                    );
+                        playlistEntries.push(
+                            `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(res.bitrate, 10) * 1000},RESOLUTION=${res.width}x${res.height}\n${path.basename(resolutionOutput)}.m3u8`,
+                        );
 
-                    completed++;
-                    if (completed === resolutions.length) {
-                        // Tạo playlist master
-                        const masterPlaylistContent = `#EXTM3U\n${playlistEntries.join('\n')}\n`;
-                        fs.writeFileSync(`${baseOutputPath}_master.m3u8`, masterPlaylistContent);
-
-                        callback(errors.length > 0 ? errors : null, 'All resolutions converted successfully');
-                    }
-                })
-                .on('error', (err) => {
-                    console.error(`Error during conversion for ${res.name}:`, err);
-                    errors.push(err);
-                    completed++;
-                    if (completed === resolutions.length) {
-                        // Tạo playlist master ngay cả khi có lỗi
-                        if (playlistEntries.length > 0) {
+                        completed++;
+                        if (completed === resolutions.length) {
                             const masterPlaylistContent = `#EXTM3U\n${playlistEntries.join('\n')}\n`;
                             fs.writeFileSync(`${baseOutputPath}_master.m3u8`, masterPlaylistContent);
                         }
 
-                        callback(errors, null);
+                        resolve();
+                    })
+                    .on('error', (err) => {
+                        console.error(`Error during conversion for ${res.name}:`, err);
+                        errors.push(err);
+                        completed++;
+                        if (completed === resolutions.length) {
+                            if (playlistEntries.length > 0) {
+                                const masterPlaylistContent = `#EXTM3U\n${playlistEntries.join('\n')}\n`;
+                                fs.writeFileSync(`${baseOutputPath}_master.m3u8`, masterPlaylistContent);
+                            }
+
+                            reject(errors);
+                        }
+                    });
+
+                ffmpegProcess.on('stderr', (data) => {
+                    const output = data.toString();
+                    const frameMatch = output.match(/frame=\s*(\d+)/);
+
+                    if (frameMatch) {
+                        const frame = parseInt(frameMatch[1], 10) * 1000;
+                        const progressData = {
+                            resolution: res.name,
+                            frame,
+                            totalFrame,
+                            resolutionIndex: resolutions.indexOf(res),
+                            totalResolutions: resolutions.length,
+                            id: options.id,
+                        };
+
+                        try {
+                            notifyAdmins('processConvertHLS', { process: progressData });
+                        } catch (error) {
+                            console.error('Error getting WebSocket server:', error);
+                        }
                     }
-                })
-                .run();
+                });
+
+                ffmpegProcess.run();
+            });
         });
+
+        try {
+            await Promise.all(promises);
+            return 'All resolutions converted successfully';
+        } catch (err) {
+            throw new Error('Error during conversion');
+        }
     } else {
-        // Xử lý chuyển đổi bình thường
-        ffmpeg(inputPath)
+        const ffmpegProcess = ffmpeg(inputPath)
             .output(`${baseOutputPath}.m3u8`)
             .audioCodec('aac')
             .videoCodec('libx264')
@@ -93,47 +126,64 @@ function convertToHLS(inputPath, outputPath, callback, options) {
             ])
             .on('end', () => {
                 console.log('HLS conversion finished.');
-                callback(null, 'Conversion successful');
             })
             .on('error', (err) => {
                 console.error('Error during conversion:', err);
-                callback(err);
-            })
-            .run();
+                throw err;
+            });
+
+        ffmpegProcess.on('stderr', (data) => {
+            const output = data.toString();
+            const frameMatch = output.match(/frame=\s*(\d+)/);
+            if (frameMatch) {
+                const frame = parseInt(frameMatch[1], 10) * 1000;
+                const progressData = {
+                    resolution: 'single',
+                    frame,
+                    totalFrame,
+                    resolutionIndex: 1,
+                    totalResolutions: 1,
+                    id: options.id,
+                };
+
+                try {
+                    notifyAdmins('processConvertHLS', { process: progressData });
+                } catch (error) {
+                    console.error('Error getting WebSocket server:', error);
+                }
+            }
+        });
+
+        ffmpegProcess.run();
+        return new Promise((resolve, reject) => {
+            ffmpegProcess.on('end', resolve);
+            ffmpegProcess.on('error', reject);
+        });
     }
 }
 
-function convertTrailerToHLS(movieId) {
-    return new Promise((resolve, reject) => {
+async function convertTrailerToHLS(movieId) {
+    try {
         const inputPath = path.join(__dirname, '..', 'storage', 'videos', 'trailers', `${movieId}.mp4`);
         const outputPath = path.join(__dirname, '..', 'storage', 'hls', 'trailers', movieId, `${movieId}.m3u8`);
-        convertToHLS(inputPath, outputPath, (err) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve();
-            }
-        });
-    });
+        await convertToHLS(inputPath, outputPath, { multiResolution: false, id: movieId });
+        console.log('Trailer conversion to HLS completed successfully');
+    } catch (err) {
+        console.error('Error converting trailer to HLS:', err);
+        throw err;
+    }
 }
 
-function convertMediaToHLS(mediaId) {
-    return new Promise((resolve, reject) => {
+async function convertMediaToHLS(mediaId) {
+    try {
         const inputPath = path.join(__dirname, '..', 'storage', 'videos', 'medias', `${mediaId}.mp4`);
         const outputPath = path.join(__dirname, '..', 'storage', 'hls', 'medias', mediaId, `${mediaId}.m3u8`);
-        convertToHLS(
-            inputPath,
-            outputPath,
-            (err) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            },
-            { multiResolution: true },
-        );
-    });
+        await convertToHLS(inputPath, outputPath, { multiResolution: true, id: mediaId });
+        console.log('Media conversion to HLS completed successfully');
+    } catch (err) {
+        console.error('Error converting media to HLS:', err);
+        throw err;
+    }
 }
 
 module.exports = { convertToHLS, convertTrailerToHLS, convertMediaToHLS };

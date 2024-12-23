@@ -28,6 +28,7 @@ router.get('/thumbnail/:filename', movieController.getThumbnail);
 router.get('/cover-image/:filename', movieController.getCoverImage);
 
 // Movie
+
 router.get('/title/:title', movieController.getMovieByTitle);
 
 router.get('/genre/:genre', movieController.getMovieByGenre);

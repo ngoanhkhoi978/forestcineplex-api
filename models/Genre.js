@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 const mongooseDelete = require('mongoose-delete');
 
 const genreSchema = new mongoose.Schema({
-    description: { type: String, required: true },
+    name: { type: String, required: true, unique: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
 });
 
 genreSchema.plugin(mongooseDelete, {
